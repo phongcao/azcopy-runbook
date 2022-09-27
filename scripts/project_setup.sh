@@ -177,6 +177,6 @@
     ci_workflow_name="CI"
     azcopy_workflow_name="AzCopy"
 
-    gh workflow enable --repos "$GITHUB_REPO" $ci_workflow_name
-    gh workflow enable --repos "$GITHUB_REPO" $azcopy_workflow_name
+    gh workflow enable --repo "$GITHUB_REPO" $ci_workflow_name
+    gh workflow enable --repo "$GITHUB_REPO" $azcopy_workflow_name
 )
