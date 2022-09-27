@@ -173,25 +173,10 @@
     gh secret set RUNBOOK_VM_USER_PASSWORD --repos "$GITHUB_REPO" --body "$RUNBOOK_VM_USER_PASSWORD"
     gh secret set DSC_SCRIPT_SAS_TOKEN --repos "$GITHUB_REPO" --body "$dscSasToken"
 
-    # echo "#### Create pipeline group - ${ci_pipeline_name} ####"
-    # if [[ -z $(az pipelines list --query "[?name=='${ci_pipeline_name}']" -o tsv) ]]
-    # then
-    #     az pipelines create \
-    #         --name "$ci_pipeline_name" \
-    #         --repository "$AZURE_DEVOPS_REPO_NAME" \
-    #         --repository-type "tfsgit" \
-    #         --yaml-path "./.azdo/ci.yml" \
-    #         --skip-first-run
-    # fi
+    # Enable GitHub workflows
+    ci_workflow_name="CI"
+    azcopy_workflow_name="AzCopy"
 
-    # echo "#### Create pipeline group - ${azcopy_pipeline_name} ####"
-    # if [[ -z $(az pipelines list --query "[?name=='${azcopy_pipeline_name}']" -o tsv) ]]
-    # then
-    #     az pipelines create \
-    #         --name "$azcopy_pipeline_name" \
-    #         --repository "$AZURE_DEVOPS_REPO_NAME" \
-    #         --repository-type "tfsgit" \
-    #         --yaml-path "./.azdo/azcopy.yml" \
-    #         --skip-first-run
-    # fi
+    gh workflow enable --repos "$GITHUB_REPO" $ci_workflow_name
+    gh workflow enable --repos "$GITHUB_REPO" $azcopy_workflow_name
 )
