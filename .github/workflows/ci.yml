@@ -11,10 +11,73 @@ on:
       - dev
   workflow_dispatch:
 
+env:
+  TF_VAR_FILE: 'azcopy-runbook.tfstate'
+  TF_WORK_DIR: 'deploy/terraform'
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+  GITHUB_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+
 jobs:
   build:
-    name: Build and Test
+    name: Set up Azure resources
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-        name: Check out repository
+    - uses: actions/checkout@v2
+      name: Check out repository
+
+    - run: |
+        tee $TF_VAR_FILE <<EOF
+        common_prefix="${{ secrets.COMMON_PREFIX }}"
+        unique_id="${{ secrets.UNIQUE_ID }}"
+        runbook_vm_admin_username="${{ secrets.RUNBOOK_VM_USER_NAME }}"
+        runbook_vm_admin_password="${{ secrets.RUNBOOK_VM_USER_PASSWORD }}"
+        runbook_vm_dsc_script_url="${{ secrets.DSC_SCRIPT_URL }}"
+        runbook_vm_dsc_sas_token="${{ secrets.DSC_SCRIPT_SAS_TOKEN }}"
+        EOF
+      name: 'Generate terraform.tfvars.'
+      working-directory: '${{ env.TF_WORK_DIR }}'
+      shell: bash
+
+    - name: 'Terraform Init'
+      uses: hashicorp/terraform-github-actions@master
+      with:
+        tf_actions_version: latest
+        tf_actions_subcommand: 'init'
+        tf_actions_working_dir: '${{ env.TF_WORK_DIR }}'
+        tf_actions_comment: true
+        args: '-backend-config="container_name=${{ secrets.COMMON_STORAGE_TF_CONTAINER }}" -backend-config="storage_account_name=${{ secrets.COMMON_STORAGE_ACCOUNT }}" -backend-config="resource_group_name=${{ secrets.COMMON_RESOURCE_GROUP }}" -backend-config="key=${{ env.TF_VAR_FILE }}"'
+
+    - name: 'Terraform Plan'
+      uses: hashicorp/terraform-github-actions@master
+      with:
+        tf_actions_version: latest
+        tf_actions_subcommand: 'plan'
+        tf_actions_working_dir: '${{ env.TF_WORK_DIR }}'
+        tf_actions_comment: true
+        args: '-var-file="${{ env.TF_VAR_FILE }}"'
+
+    - name: 'Terraform Apply'
+      uses: hashicorp/terraform-github-actions@master
+      with:
+        tf_actions_version: latest
+        tf_actions_subcommand: 'apply'
+        tf_actions_working_dir: '${{ env.TF_WORK_DIR }}'
+        tf_actions_comment: true
+        args: '-var-file="${{ env.TF_VAR_FILE }}"'
+
+    - run: |
+        # Read terraform output variables
+        tfOutput=$(terraform output -json)
+        rgName=$(jq '.resource_group_name.value' <<< "$tfOutput")
+        aaName=$(jq '.automation_account_name.value' <<< "$tfOutput")
+        webhook=$(jq '.runbook_webhook_uri.value' <<< "$tfOutput")
+
+        gh secret set DEPLOYED_RESOURCE_GROUP --repos "$GITHUB_REPO" --body "$rgName"
+        gh secret set DEPLOYED_AUTOMATION_ACCOUNT --repos "$GITHUB_REPO" --body "$aaName"
+        gh secret set DEPLOYED_WEBHOOK --repos "$GITHUB_REPO" --body "$webhook"
+      name: 'Update variable group'
+      working-directory: '${{ env.TF_WORK_DIR }}'
+      shell: bash

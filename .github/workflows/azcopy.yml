@@ -1,20 +1,234 @@
 name: 'AzCopy'
 
 on:
-  push:
-    branches:
-      - main
-      - dev
-  pull_request:
-    branches:
-      - main
-      - dev
   workflow_dispatch:
+    inputs:
+      sourceStorageAccountName:
+        description: 'Source Storage Account Name'
+        required: true
+        default: '[from secrets]'
+      sourceStorageAccountKey:
+        description: 'Source Storage Account Key'
+        required: true
+        default: '[from secrets]'
+      sourceContainerOrFileShareName:
+        description: 'Source Container or File Share Name'
+        required: true
+        default: '[from secrets]'
+      sourcePath:
+        description: 'Source Path'
+        required: true
+        default: '/'
+      targetStorageAccountName:
+        description: 'Target Storage Account Name'
+        required: true
+        default: '[from secrets]'
+      targetStorageAccountKey:
+        description: 'Target Storage Account Key'
+        required: true
+        default: '[from secrets]'
+      targetContainerOrFileShareName:
+        description: 'Target Container or File Share Name'
+        required: true
+        default: '[from secrets]'
+      targetPath:
+        description: 'Target Path'
+        required: true
+        default: '/'
+      tokenDuration:
+        description: 'Token Duration'
+        required: true
+        default: 3600 # 1 hour
 
 jobs:
   build:
-    name: Build and Test
+    name: Running AzCopy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-        name: Check out repository
+    - run: |
+        if [ "${{ github.event.inputs.sourceStorageAccountName }}" == "[from secrets]" ]
+        then
+          sourceStorageAccountName="${{ secrets.SOURCE_STORAGE_ACCOUNT_NAME }}"
+        else
+          sourceStorageAccountName="${{ github.event.inputs.sourceStorageAccountName }}"
+        fi
+
+        if [ "${{ github.event.inputs.sourceStorageAccountKey }}" == "[from secrets]" ]
+        then
+          sourceStorageAccountKey="${{ secrets.SOURCE_STORAGE_ACCOUNT_KEY }}"
+        else
+          sourceStorageAccountKey="${{ github.event.inputs.sourceStorageAccountKey }}"
+        fi
+
+        if [ "${{ github.event.inputs.sourceContainerOrFileShareName }}" == "[from secrets]" ]
+        then
+          sourceContainerOrFileShareName="${{ secrets.SOURCE_CONTAINER_OR_FILE_SHARE_NAME }}"
+        else
+          sourceContainerOrFileShareName="${{ github.event.inputs.sourceContainerOrFileShareName }}"
+        fi
+
+        if [ "${{ github.event.inputs.targetStorageAccountName }}" == "[from secrets]" ]
+        then
+          targetStorageAccountName="${{ secrets.TARGET_STORAGE_ACCOUNT_NAME }}"
+        else
+          targetStorageAccountName="${{ github.event.inputs.targetStorageAccountName }}"
+        fi
+
+        if [ "${{ github.event.inputs.targetStorageAccountKey }}" == "[from secrets]" ]
+        then
+          targetStorageAccountKey="${{ secrets.TARGET_STORAGE_ACCOUNT_KEY }}"
+        else
+          targetStorageAccountKey="${{ github.event.inputs.targetStorageAccountKey }}"
+        fi
+
+        if [ "${{ github.event.inputs.targetContainerOrFileShareName }}" == "[from secrets]" ]
+        then
+          targetContainerOrFileShareName="${{ secrets.TARGET_CONTAINER_OR_FILE_SHARE_NAME }}"
+        else
+          targetContainerOrFileShareName="${{ github.event.inputs.targetContainerOrFileShareName }}"
+        fi
+
+        # Set output variables
+        echo "##[set-output name=sourceStorageAccountName;]$sourceStorageAccountName"
+        echo "##[set-output name=sourceStorageAccountKey;]$sourceStorageAccountKey"
+        echo "##[set-output name=sourceContainerOrFileShareName;]$sourceContainerOrFileShareName"
+        echo "##[set-output name=targetStorageAccountName;]$targetStorageAccountName"
+        echo "##[set-output name=targetStorageAccountKey;]$targetStorageAccountKey"
+        echo "##[set-output name=targetContainerOrFileShareName;]$targetContainerOrFileShareName"
+      name: Prepare parameters
+      id: params
+      shell: bash
+
+    - name: Generate SAS URI
+      id: tokens
+      uses: azure/powershell@v1
+      with:
+        azPSVersion: 'latest'
+        inlineScript: |
+          # Create storage account contexts
+          $sourceContext = New-AzStorageContext `
+            -StorageAccountName ${{ steps.params.outputs.sourceStorageAccountName }} `
+            -StorageAccountKey ${{ steps.params.outputs.sourceStorageAccountKey }}
+
+          $targetContext = New-AzStorageContext `
+            -StorageAccountName ${{ steps.params.outputs.targetStorageAccountName }} `
+            -StorageAccountKey ${{ steps.params.outputs.targetStorageAccountKey }}
+
+          # Check if container or file share name are provided
+          $sourceUseContainer = Get-AzStorageContainer `
+            -Context $sourceContext `
+            -Prefix ${{ steps.params.outputs.sourceContainerOrFileShareName }}
+
+          $targetUseContainer = Get-AzStorageContainer `
+            -Context $targetContext `
+            -Prefix ${{ steps.params.outputs.targetContainerOrFileShareName }}
+
+          # Generate SAS tokens
+          $tokenDuration = ${{ github.event.inputs.tokenDuration }}
+          $sourcePermissions = "lr"
+          $targetPermissions = "lw"
+
+          if ( $sourceUseContainer ) `
+          { `
+            $sourceSASURI = New-AzStorageContainerSASToken `
+              -Context $sourceContext `
+              -ExpiryTime(get-date).AddSeconds($tokenDuration) `
+              -FullUri `
+              -Name ${{ steps.params.outputs.sourceContainerOrFileShareName }} `
+              -Permission $sourcePermissions
+          } `
+          else `
+          { `
+            $sourceSASURI = New-AzStorageShareSASToken `
+              -Context $sourceContext `
+              -ExpiryTime(get-date).AddSeconds($tokenDuration) `
+              -FullUri `
+              -ShareName ${{ steps.params.outputs.sourceContainerOrFileShareName }} `
+              -Permission $sourcePermissions
+          }
+
+          if ( $targetUseContainer ) `
+          { `
+            $targetSASURI = New-AzStorageContainerSASToken `
+              -Context $targetContext `
+              -ExpiryTime(get-date).AddSeconds($tokenDuration) `
+              -FullUri `
+              -Name ${{ steps.params.outputs.targetContainerOrFileShareName }} `
+              -Permission $targetPermissions
+          } `
+          else `
+          { `
+            $targetSASURI = New-AzStorageShareSASToken `
+              -Context $targetContext `
+              -ExpiryTime(get-date).AddSeconds($tokenDuration) `
+              -FullUri `
+              -ShareName ${{ steps.params.outputs.targetContainerOrFileShareName }} `
+              -Permission $targetPermissions
+          }
+
+          # Add paths if needed
+          if ( '${{ github.event.inputs.sourcePath }}' -ne '/' ) `
+          { `
+            $sourceSASURI = $sourceSASURI.replace(`
+              "/${{ steps.params.outputs.sourceContainerOrFileShareName }}`?", `
+              "/${{ steps.params.outputs.sourceContainerOrFileShareName }}${{ steps.params.outputs.sourcePath }}`?")
+          }
+
+          if ( '${{ github.event.inputs.targetPath }}' -ne '/' ) `
+          { `
+            $targetSASURI = $targetSASURI.replace(`
+              "/${{ steps.params.outputs.targetContainerOrFileShareName }}`?", `
+              "/${{ steps.params.outputs.targetContainerOrFileShareName }}${{ steps.params.outputs.targetPath }}`?")
+          }
+
+          # Set output variables
+          echo "##[set-output name=sourceSASURI;]$sourceSASURI"
+          echo "##[set-output name=targetSASURI;]$targetSASURI"
+
+    - name: Login via Az module
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        enable-AzPSSession: true
+
+    - name: Invoke azcopy runbook
+      uses: azure/powershell@v1
+      with:
+        azPSVersion: 'latest'
+        inlineScript: |
+          $body = @{
+            "sourceSASURI" = "${{ steps.tokens.outputs.sourceSASURI }}"
+            "targetSASURI" = "${{ steps.tokens.outputs.targetSASURI }}"
+          }
+
+          $res = Invoke-RestMethod `
+            -Method 'Post' `
+            -Uri ${{ secrets.DEPLOYED_WEBHOOK }} `
+            -Body ($body|ConvertTo-Json) `
+            -ContentType "application/json" `
+            | ConvertTo-Json
+
+          $jobID = (ConvertFrom-Json ($res)).jobids[0]
+
+          $status = ''
+          while ($status -ne 'Completed' -and $status -ne 'Failed')
+          {
+            $output = Get-AzAutomationJob `
+              -ResourceGroupName ${{ secrets.DEPLOYED_RESOURCE_GROUP }} `
+              -AutomationAccountName ${{ secrets.DEPLOYED_AUTOMATION_ACCOUNT }} `
+              -Id $jobID `
+              | Select-Object -Property Status `
+              | ConvertTo-Json
+
+            $status = (ConvertFrom-Json ($output)).status
+            Write-Output "Status: $status"
+
+            Start-Sleep -Seconds 5
+          }
+
+          # Print output
+          Get-AzAutomationJobOutput `
+            -ResourceGroupName ${{ secrets.DEPLOYED_RESOURCE_GROUP }} `
+            -AutomationAccountName ${{ secrets.DEPLOYED_AUTOMATION_ACCOUNT }} `
+            -Id $jobID `
+            -Stream Any

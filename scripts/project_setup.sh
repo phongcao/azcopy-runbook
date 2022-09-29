@@ -8,14 +8,14 @@
 ## - Common storage account & containers (tfstate & dsc)
 ## - Upload DSC script
 ## - Service principal used to execute Terraform
-## - GitHub workflow
+## - GitHub workflows
 ##
 ## DSC resources include:
 ## - dsc.ps1
 ##
 ## Dependencies:
 ## - az cli <https://learn.microsoft.com/en-us/cli/azure/install-azure-cli>
-## - GitHub cli <https://github.com/cli/cli>
+## - github cli <https://github.com/cli/cli>
 ## - jq <https://stedolan.github.io/jq>
 ## - zip
 
@@ -131,13 +131,15 @@
             --role="Owner" \
             --scopes="/subscriptions/${subscriptionId}" \
             --name "${sname}" \
-            --output json)
+            --output json \
+            --sdk-auth)
     else
         spout=$(az ad sp create-for-rbac \
             --role="Owner" \
             --scopes="/subscriptions/${subscriptionId}" \
             --name "${sname}" \
-            --output json)
+            --output json \
+            --sdk-auth)
     fi
 
     # If the service principal has been created then reset credentials
@@ -154,29 +156,30 @@
 
     export GITHUB_TOKEN="${GITHUB_ACCESS_TOKEN}"
     dscScriptUrl="https://${common_storage_account}.blob.core.windows.net/dsc/dsc.ps1.zip"
+    clientId=$(jq -r .clientId <<< "$spout")
+    clientSecret=$(jq -r .clientSecret <<< "$spout")
+    tenantId=$(jq -r .tenantId <<< "$spout")
 
     # Set GitHub secrets
+    gh secret set GH_ACCESS_TOKEN --repos "$GITHUB_REPO" --body "$GITHUB_TOKEN"
     gh secret set AZURE_CREDENTIALS --repos "$GITHUB_REPO" --body "$spout"
+    gh secret set ARM_CLIENT_ID --repos "$GITHUB_REPO" --body "$clientId"
+    gh secret set ARM_CLIENT_SECRET --repos "$GITHUB_REPO" --body "$clientSecret"
+    gh secret set ARM_TENANT_ID --repos "$GITHUB_REPO" --body "$tenantId"
+    gh secret set ARM_SUBSCRIPTION_ID --repos "$GITHUB_REPO" --body "$subscriptionId"
     gh secret set COMMON_PREFIX --repos "$GITHUB_REPO" --body "$COMMON_PREFIX"
     gh secret set UNIQUE_ID --repos "$GITHUB_REPO" --body "$UNIQUE_ID"
     gh secret set COMMON_RESOURCE_GROUP --repos "$GITHUB_REPO" --body "$common_resource_group"
     gh secret set COMMON_STORAGE_ACCOUNT --repos "$GITHUB_REPO" --body "$common_storage_account"
     gh secret set COMMON_STORAGE_TF_CONTAINER --repos "$GITHUB_REPO" --body "$common_storage_tf_container"
     gh secret set SOURCE_STORAGE_ACCOUNT_NAME --repos "$GITHUB_REPO" --body "$SOURCE_STORAGE_ACCOUNT_NAME"
+    gh secret set SOURCE_STORAGE_ACCOUNT_KEY --repos "$GITHUB_REPO" --body "$SOURCE_STORAGE_ACCOUNT_KEY"
     gh secret set SOURCE_CONTAINER_OR_FILE_SHARE_NAME --repos "$GITHUB_REPO" --body "$SOURCE_CONTAINER_OR_FILE_SHARE_NAME"
     gh secret set TARGET_STORAGE_ACCOUNT_NAME --repos "$GITHUB_REPO" --body "$TARGET_STORAGE_ACCOUNT_NAME"
+    gh secret set TARGET_STORAGE_ACCOUNT_KEY --repos "$GITHUB_REPO" --body "$TARGET_STORAGE_ACCOUNT_KEY"
     gh secret set TARGET_CONTAINER_OR_FILE_SHARE_NAME --repos "$GITHUB_REPO" --body "$TARGET_CONTAINER_OR_FILE_SHARE_NAME"
     gh secret set DSC_SCRIPT_URL --repos "$GITHUB_REPO" --body "$dscScriptUrl"
-    gh secret set SOURCE_STORAGE_ACCOUNT_KEY --repos "$GITHUB_REPO" --body "$SOURCE_STORAGE_ACCOUNT_KEY"
-    gh secret set TARGET_STORAGE_ACCOUNT_KEY --repos "$GITHUB_REPO" --body "$TARGET_STORAGE_ACCOUNT_KEY"
     gh secret set RUNBOOK_VM_USER_NAME --repos "$GITHUB_REPO" --body "$RUNBOOK_VM_USER_NAME"
     gh secret set RUNBOOK_VM_USER_PASSWORD --repos "$GITHUB_REPO" --body "$RUNBOOK_VM_USER_PASSWORD"
     gh secret set DSC_SCRIPT_SAS_TOKEN --repos "$GITHUB_REPO" --body "$dscSasToken"
-
-    # Enable GitHub workflows
-    ci_workflow_name="CI"
-    azcopy_workflow_name="AzCopy"
-
-    gh workflow enable --repo "$GITHUB_REPO" $ci_workflow_name
-    gh workflow enable --repo "$GITHUB_REPO" $azcopy_workflow_name
 )
