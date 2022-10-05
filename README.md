@@ -2,8 +2,6 @@
 
 This is the main readme for the AzCopy-Runbook project.
 
-[![CI](https://github.com/phongcao/azcopy-runbook/actions/workflows/ci.yml/badge.svg)](https://github.com/phongcao/azcopy-runbook/actions/workflows/ci.yml)
-
 ## Overview
 
 This project is intended to serve two purposes:
